@@ -1058,6 +1058,46 @@ export default function App() {
     return id.toString();
   };
 
+  // ------------------------------------------
+  // 悬浮属性卡：跟随被悬停引脚，智能避让不遮挡
+  // ------------------------------------------
+  const TOOLTIP_W = 288;
+  const TOOLTIP_EST_H = 250;
+  const tooltip = useMemo(() => {
+    if (hoveredPin == null || isGesturing) return null;
+    if (hoveredPin === selectedPinId) return null;
+    const idx = pinsData.findIndex(p => p.id === hoveredPin);
+    if (idx < 0) return null;
+
+    // 世界坐标 → 屏幕坐标（画布内）
+    const box = getPinBoxStyleByIndex(idx);
+    const { x: tx, y: ty, scale } = chipTransform;
+    const screen = {
+      left: tx + box.left * scale,
+      top: ty + box.top * scale,
+      width: box.width * scale,
+      height: box.height * scale,
+    };
+
+    const vw = viewportSize.width || 0;
+    const vh = viewportSize.height || 0;
+    if (!vw || !vh) return null;
+    // 引脚完全位于画布外时不显示
+    if (screen.left > vw || screen.top > vh || screen.left + screen.width < 0 || screen.top + screen.height < 0) return null;
+
+    const margin = 10;
+    const pinCenterY = screen.top + screen.height / 2;
+    // 默认放引脚右侧，空间不足换左侧
+    const side = screen.left + screen.width + margin + TOOLTIP_W <= vw ? 'right' : 'left';
+    const left = side === 'right'
+      ? screen.left + screen.width + margin
+      : Math.max(6, screen.left - margin - TOOLTIP_W);
+    const top = clamp(pinCenterY - TOOLTIP_EST_H / 2, 6, Math.max(6, vh - TOOLTIP_EST_H - 6));
+    const arrowTop = clamp(pinCenterY - top, 18, TOOLTIP_EST_H - 18);
+    return { left, top, side, arrowTop };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoveredPin, selectedPinId, isGesturing, pinsData, chipTransform, viewportSize, packageLayout]);
+
   useEffect(() => {
     if (!isDataLoaded) return;
     const update = () => {
@@ -1082,10 +1122,14 @@ export default function App() {
       if (viewportRef.current) ro.observe(viewportRef.current);
     }
 
+    // 自愈循环：环境 RO 失效/样式晚注入时，周期性校验画布尺寸偏差并纠正
+    const iv = window.setInterval(update, 800);
+
     return () => {
       timers.forEach(t => window.clearTimeout(t));
       window.removeEventListener('load', update);
       window.removeEventListener('resize', update);
+      window.clearInterval(iv);
       if (ro) ro.disconnect();
     };
   }, [isDataLoaded, view]);
@@ -2394,10 +2438,14 @@ export default function App() {
                   </button>
                 )}
 
-                {/* 悬浮 Tooltip 面板 */}
-                {hoveredPin && hoveredPin !== selectedPinId && pinsData.find(p => p.id === hoveredPin) && (
-                  <div className="absolute bottom-16 right-6 pointer-events-none z-50">
-                    <div className="bg-slate-900 text-white text-sm rounded-xl shadow-2xl p-4 w-72 border border-slate-700 backdrop-blur-md bg-opacity-95">
+                {/* 悬浮属性卡：跟随引脚，智能避让 */}
+                {tooltip && hoveredPin != null && pinsData.find(p => p.id === hoveredPin) && (
+                  <div className="absolute pointer-events-none z-50" style={{ left: tooltip.left, top: tooltip.top, width: TOOLTIP_W }}>
+                    <div className="relative bg-slate-900 text-white text-sm rounded-xl shadow-2xl p-4 w-full border border-slate-700 backdrop-blur-md bg-opacity-95">
+                      <span
+                        className="absolute w-3 h-3 bg-slate-900 rotate-45 -translate-y-1/2"
+                        style={{ top: tooltip.arrowTop, ...(tooltip.side === 'right' ? { left: -6 } : { right: -6 }) }}
+                      />
                       <div className="flex justify-between items-start mb-3 border-b border-slate-700 pb-2">
                         <div>
                           <div className="font-black text-lg text-slate-100">Pin {hoveredPin}</div>
