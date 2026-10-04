@@ -4,6 +4,11 @@
 
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -16,3 +21,24 @@ body {
   width: 100%;
   min-height: 100vh;
 }
+
+/* ---------- 动画 ---------- */
+@keyframes pinforge-toast-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.pinforge-toast-in { animation: pinforge-toast-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+
+@keyframes pinforge-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.pinforge-pop-in { animation: pinforge-pop-in 0.16s ease-out; }
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; background-clip: content-box; }
+html.dark ::-webkit-scrollbar-thumb { background: #475569; background-clip: content-box; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; background-clip: content-box; }
