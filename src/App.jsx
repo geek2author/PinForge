@@ -881,20 +881,23 @@ export default function App() {
     }
 
     if (kind === 'bga') {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(totalPins)));
-      const rows = Math.max(1, Math.ceil(totalPins / cols));
-
+      // 按画布长宽比排布球阵，尽量铺满可用空间
       const gutter = Math.max(22, Math.floor(base * 0.035));
       const gutterTop = gutter;
       const gutterLeft = gutter;
 
       const availableW = maxW - pad * 2 - gutterLeft;
       const availableH = maxH - pad * 2 - gutterTop;
+      const ar = availableW / Math.max(1, availableH);
+
+      let cols = Math.max(1, Math.round(Math.sqrt(totalPins * ar)));
+      let rows = Math.max(1, Math.ceil(totalPins / cols));
+      if (cols * rows < totalPins) cols = Math.ceil(totalPins / rows);
 
       let gap = totalPins > 400 ? 2 : totalPins > 200 ? 3 : 6;
       const fitBallW = Math.floor((availableW - gap * Math.max(cols - 1, 1)) / cols);
       const fitBallH = Math.floor((availableH - gap * Math.max(rows - 1, 1)) / rows);
-      let ball = Math.max(8, Math.min(fitBallW, fitBallH));
+      let ball = Math.max(8, Math.min(fitBallW, fitBallH, 44));
 
       gap = Math.max(2, Math.min(gap, Math.floor(ball * 0.55)));
 
@@ -906,43 +909,56 @@ export default function App() {
       return { kind, pad, gap, cell: ball, width, height, cols, rows, ball, gutterTop, gutterLeft, pinsOrigin };
     }
 
-    const maxSize = Math.min(maxW, maxH);
-    const cellsPerSide = Math.max(2, Math.ceil((totalPins + 4) / 4));
-    let gap = totalPins > 120 ? 3 : totalPins > 80 ? 4 : 6;
-    let cell = totalPins > 120 ? 14 : totalPins > 80 ? 16 : 20;
+    // 周长布局（QFP/QFN 等）：按画布长宽比排成矩形，引脚尽量大、芯片尽量铺满
+    const availW = maxW - pad * 2;
+    const availH = maxH - pad * 2;
+    const ar = Math.min(2.2, Math.max(0.7, availW / Math.max(1, availH)));
 
-    const fitCell = (c, g) => {
-      const usable = maxSize - pad * 2 - g * (cellsPerSide - 1);
-      return Math.floor(usable / cellsPerSide);
-    };
+    const half = totalPins / 2 + 2; // cols + rows
+    let rows = Math.max(3, Math.round(half / (1 + ar)));
+    let cols = Math.max(3, Math.round(half - rows));
+    // 保证周长容量足够（不足时加宽）
+    while (2 * (cols + rows - 2) < totalPins) cols += 1;
+    // 轻微平衡：宽高比偏大时优先加列
+    if (cols * 1 < rows * ar * 0.8) cols += 1;
 
-    cell = Math.min(cell, fitCell(cell, gap));
+    let gap = totalPins > 120 ? 3 : totalPins > 80 ? 4 : 5;
+    let cell = Math.floor(Math.min(
+      (availW - gap * Math.max(cols - 1, 1)) / cols,
+      (availH - gap * Math.max(rows - 1, 1)) / rows
+    ));
     if (cell < 10) {
-      gap = Math.max(2, Math.floor((maxSize - pad * 2 - cellsPerSide * 10) / Math.max(cellsPerSide - 1, 1)));
-      cell = fitCell(10, gap);
+      gap = Math.max(2, Math.min(gap, Math.floor(((availW - cols * 10) / Math.max(cols - 1, 1)) / 1.5)));
+      cell = Math.max(10, Math.floor(Math.min(
+        (availW - gap * Math.max(cols - 1, 1)) / cols,
+        (availH - gap * Math.max(rows - 1, 1)) / rows
+      )));
     }
-
-    cell = Math.max(10, cell);
+    cell = Math.min(cell, 44);
     gap = Math.max(2, Math.min(gap, Math.floor(cell * 0.5)));
 
-    const size = pad * 2 + cellsPerSide * cell + (cellsPerSide - 1) * gap;
+    const size = {
+      width: pad * 2 + cols * cell + (cols - 1) * gap,
+      height: pad * 2 + rows * cell + (rows - 1) * gap,
+    };
     const bodyInset = pad + cell + gap;
-    return { kind, pad, gap, cell, width: size, height: size, cellsPerSide, bodyInset };
+    return { kind, pad, gap, cell, width: size.width, height: size.height, cols, rows, bodyInset };
   }, [pinsData.length, viewportSize.width, viewportSize.height, chipInfo.package]);
 
   const getPinGridPos = (pinIndex) => {
-    const n = packageLayout.cellsPerSide;
-    const perimeter = 4 * n - 4;
+    const n = packageLayout.cols;
+    const m = packageLayout.rows;
+    const perimeter = 2 * (n + m - 2);
     const idx = Math.max(0, Math.min(pinIndex, perimeter - 1));
     const topLen = n;
-    const rightLen = n - 2;
+    const rightLen = m - 2;
     const bottomLen = n;
-    const leftLen = n - 2;
+    const leftLen = m - 2;
 
     if (idx < topLen) return { row: 0, col: idx, side: 'top' };
     if (idx < topLen + rightLen) return { row: 1 + (idx - topLen), col: n - 1, side: 'right' };
-    if (idx < topLen + rightLen + bottomLen) return { row: n - 1, col: (n - 1) - (idx - (topLen + rightLen)), side: 'bottom' };
-    if (idx < topLen + rightLen + bottomLen + leftLen) return { row: (n - 2) - (idx - (topLen + rightLen + bottomLen)), col: 0, side: 'left' };
+    if (idx < topLen + rightLen + bottomLen) return { row: m - 1, col: (n - 1) - (idx - (topLen + rightLen)), side: 'bottom' };
+    if (idx < topLen + rightLen + bottomLen + leftLen) return { row: (m - 2) - (idx - (topLen + rightLen + bottomLen)), col: 0, side: 'left' };
     return { row: 0, col: 0, side: 'top' };
   };
 
@@ -1073,6 +1089,15 @@ export default function App() {
       if (ro) ro.disconnect();
     };
   }, [isDataLoaded, view]);
+
+  // 面板开合/视图切换会改变画布尺寸，主动重测（RO 不可用环境的兜底）
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    setViewportSize(prev => (prev.width === rect.width && prev.height === rect.height ? prev : { width: rect.width, height: rect.height }));
+  }, [isDataLoaded, view, inspectorSide, selectedPinId == null]);
 
   useEffect(() => {
     if (!isDataLoaded) return;
@@ -2081,16 +2106,49 @@ export default function App() {
                       className="relative bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-300 dark:border-slate-700 flex-shrink-0"
                       style={{ width: packageLayout.width, height: packageLayout.height }}
                     >
-                      {packageLayout.kind === 'perimeter' && (
-                        <div
-                          className="absolute bg-slate-800 rounded-lg shadow-inner flex flex-col items-center justify-center pointer-events-none"
-                          style={{ left: packageLayout.bodyInset, top: packageLayout.bodyInset, right: packageLayout.bodyInset, bottom: packageLayout.bodyInset }}
-                        >
-                          <div className="text-slate-400 text-2xl font-bold tracking-widest opacity-80">{chipInfo.manufacturer}</div>
-                          <div className="text-slate-500 text-lg font-bold mt-2 opacity-80">{chipInfo.name}</div>
-                          <div className="text-slate-600 text-sm mt-1">{chipInfo.package} {chipInfo.pinCount} pins</div>
-                        </div>
-                      )}
+                      {packageLayout.kind === 'perimeter' && (() => {
+                        const bodyW = packageLayout.width - packageLayout.bodyInset * 2;
+                        const bodyH = packageLayout.height - packageLayout.bodyInset * 2;
+                        const showStats = bodyW >= 320 && bodyH >= 200;
+                        const pct = Math.min(100, Math.round((assignedCount / Math.max(chipInfo.pinCount, 1)) * 100));
+                        return (
+                          <div
+                            className="absolute bg-gradient-to-br from-slate-800 to-slate-900 rounded-lg shadow-inner flex flex-col items-center justify-center pointer-events-none overflow-hidden"
+                            style={{ left: packageLayout.bodyInset, top: packageLayout.bodyInset, right: packageLayout.bodyInset, bottom: packageLayout.bodyInset }}
+                          >
+                            <div className="text-slate-500 text-[10px] font-bold tracking-[0.35em] uppercase opacity-90">{chipInfo.manufacturer}</div>
+                            <div className="text-slate-200 text-2xl font-black tracking-tight mt-1.5 opacity-90 px-4 text-center truncate max-w-full">{chipInfo.name}</div>
+                            <div className="text-slate-500 text-xs font-mono mt-1">{chipInfo.package} · {chipInfo.pinCount} pins</div>
+
+                            {showStats && (
+                              <div className="mt-6 w-[72%] max-w-[460px] flex flex-col gap-3">
+                                <div>
+                                  <div className="flex justify-between items-baseline mb-1.5">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">IO 利用率</span>
+                                    <span className="text-[12px] font-mono font-bold text-slate-400">{assignedCount}<span className="text-slate-600"> / {chipInfo.pinCount}</span></span>
+                                  </div>
+                                  <div className="h-1.5 bg-slate-700/80 rounded-full overflow-hidden">
+                                    <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                                  </div>
+                                </div>
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-bold">
+                                    {assignedSignalSet.size} 信号已接入
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-full bg-slate-700/70 text-slate-400 text-[10px] font-bold">
+                                    {Math.max(0, chipInfo.pinCount - assignedCount)} IO 空闲
+                                  </span>
+                                  {signalCounts.conflict > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 text-[10px] font-bold">
+                                      {signalCounts.conflict} 冲突
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {packageLayout.kind === 'dip' && (
                         <div
                           className="absolute bg-slate-800 rounded-lg shadow-inner flex flex-col items-center justify-center pointer-events-none"
