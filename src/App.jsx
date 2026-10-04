@@ -5,22 +5,26 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download, RefreshCw, Cpu, CheckCircle, Info, Ban, Edit3, MousePointer, Eye, Upload,
   AlertCircle, X, Tag, FileJson, Settings, ArrowLeftRight, Search, AlertTriangle,
-  Undo2, Redo2, Sun, Moon, Keyboard, BookOpen, ChevronDown, ChevronRight, ChevronsUpDown,
+  Undo2, Redo2, Sun, Moon, Keyboard, BookOpen, ChevronDown, ChevronRight,
   LayoutPanelTop, Table2, Eraser, RotateCcw, FileText, FileSpreadsheet, FileCode2,
-  BookMarked, Zap, ChevronsLeftRight,
+  BookMarked, Zap, ChevronsLeftRight, Wand2, ShieldCheck, Droplets, Link2, FileCode,
 } from 'lucide-react';
 
-import { isPowerPin, buildPinGroups } from './lib/core.js';
+import { isPowerPin, buildPinGroups, COLOR_PALETTES } from './lib/core.js';
 import { decodeFileText, parseSpreadsheet, parseTextRows, buildPinsFromRows } from './lib/importer.js';
-import { generateCHeader, generateMarkdownReport } from './lib/codegen.js';
+import { generateCHeader, generateMarkdownReport, generateIdfGpioInit, generateStm32HalInit } from './lib/codegen.js';
 import { saveSession, loadSession, clearSession, loadTheme, saveTheme } from './lib/storage.js';
 import { SAMPLE_CHIPS } from './lib/samples.js';
+import { runDRC } from './lib/drc.js';
+import { buildShareUrl, decodeShareConfig } from './lib/share.js';
 import { toast, Toaster } from './lib/notify.jsx';
 import { confirmDialog, ConfirmHost } from './lib/confirm.jsx';
 import Welcome from './components/Welcome.jsx';
 import PinTable from './components/PinTable.jsx';
 import ZoomBar from './components/ZoomBar.jsx';
 import ShortcutsModal from './components/ShortcutsModal.jsx';
+import PresetPanel from './components/PresetPanel.jsx';
+import DrcDrawer from './components/DrcDrawer.jsx';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 const PACKAGES = ['QFP', 'QFN', 'BGA', 'TQFP', 'LQFP', 'SOIC', 'DIP', 'Custom'];
@@ -77,6 +81,9 @@ export default function App() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [dragging, setDragging] = useState(false);
   const exportMenuRef = useRef(null);
+  const [showDrc, setShowDrc] = useState(false);
+  const [powerView, setPowerView] = useState(false);
+  const [powerFocusRail, setPowerFocusRail] = useState(null);
 
   // ---------- 撤销 / 重做 ----------
   const historyRef = useRef({ past: [], future: [] });
@@ -146,14 +153,37 @@ export default function App() {
   useEffect(() => {
     if (didRestoreRef.current) return;
     didRestoreRef.current = true;
-    const saved = loadSession();
-    if (!saved) return;
-    setChipInfo(prev => ({ ...prev, ...(saved.chipInfo || {}) }));
-    setPinMapping(saved.mapping || {});
-    setCustomLabels(saved.customLabels || {});
-    setPinsData(saved.pinsData);
-    processPinDataToGroups(saved.pinsData);
-    toast.success(`已自动恢复上次会话（${saved.pinsData.length} 个引脚）`);
+
+    const restore = async () => {
+      // 优先：分享链接（#d=...）
+      if (window.location.hash.startsWith('#d=')) {
+        const cfg = await decodeShareConfig(window.location.hash.slice(3));
+        if (cfg && Array.isArray(cfg.pinsData) && cfg.pinsData.length > 0) {
+          setChipInfo(prev => ({ ...prev, ...(cfg.chip || {}) }));
+          setPinMapping(cfg.mapping || {});
+          setCustomLabels(cfg.customLabels || {});
+          setPinsData(cfg.pinsData);
+          processPinDataToGroups(cfg.pinsData);
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          toast.success('已从分享链接恢复完整配置');
+          return;
+        }
+        toast.error('分享链接无效或已损坏');
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+
+      // 其次：本地会话
+      const saved = loadSession();
+      if (!saved) return;
+      setChipInfo(prev => ({ ...prev, ...(saved.chipInfo || {}) }));
+      setPinMapping(saved.mapping || {});
+      setCustomLabels(saved.customLabels || {});
+      setPinsData(saved.pinsData);
+      processPinDataToGroups(saved.pinsData);
+      toast.success(`已自动恢复上次会话（${saved.pinsData.length} 个引脚）`);
+    };
+
+    restore();
   }, []);
 
   useEffect(() => {
@@ -361,6 +391,46 @@ export default function App() {
     const unassigned = Math.max(0, total - assigned);
     return { total, assigned, unassigned, conflict };
   }, [allSignalsFlat.length, assignedSignalSet, conflictSignalSet]);
+
+  // ---------- 设计审查（DRC） ----------
+  const drcFindings = useMemo(() => {
+    if (!isDataLoaded) return [];
+    return runDRC({
+      pinsData,
+      pinMapping,
+      signals: allSignalsFlat.map(s => s.id),
+      conflictSignalIds: conflictSignalSet,
+      isPower: isPowerPin,
+    });
+  }, [isDataLoaded, pinsData, pinMapping, allSignalsFlat, conflictSignalSet]);
+  const drcErrorCount = drcFindings.filter(f => f.level === 'error').length;
+  const drcWarnCount = drcFindings.filter(f => f.level === 'warn').length;
+
+  // ---------- 电源域 ----------
+  const railInfo = useMemo(() => {
+    if (!isDataLoaded) return { railMap: new Map(), railList: [], railColorMap: {} };
+    const railMap = new Map(); // pinId -> rail name
+    const counts = new Map(); // rail -> { total, assigned }
+    for (const p of pinsData) {
+      if (isPowerPin(p)) continue;
+      const rail = String(p.power || '').split('/')[0].trim();
+      if (!rail || rail === '--' || rail === '-') continue;
+      railMap.set(p.id, rail);
+      const c = counts.get(rail) || { total: 0, assigned: 0 };
+      c.total += 1;
+      if (pinMapping[p.id]) c.assigned += 1;
+      counts.set(rail, c);
+    }
+    const railList = [...counts.keys()].sort().map((name, i) => ({
+      name,
+      ...counts.get(name),
+      bg: COLOR_PALETTES[i % COLOR_PALETTES.length].bg,
+      dot: COLOR_PALETTES[i % COLOR_PALETTES.length].dot,
+    }));
+    const railColorMap = {};
+    railList.forEach(r => { railColorMap[r.name] = r.bg; });
+    return { railMap, railList, railColorMap };
+  }, [isDataLoaded, pinsData, pinMapping]);
 
   const filteredSignalGroups = useMemo(() => {
     const q = signalSearch.trim().toLowerCase();
@@ -670,6 +740,109 @@ export default function App() {
   };
 
   // ------------------------------------------
+  // 一键自动排布：约束最强的信号优先，贪心占用空闲合法引脚
+  // ------------------------------------------
+  const handleAutoAssign = () => {
+    const freePins = new Set(pinsData.filter(p => !isPowerPin(p) && !pinMapping[p.id]).map(p => p.id));
+    const unassigned = allSignalsFlat.filter(s => !assignedSignalSet.has(s.id));
+    if (unassigned.length === 0) {
+      toast.info('所有信号都已分配。');
+      return;
+    }
+    const order = unassigned
+      .map(s => ({ sig: s.id, cands: (validMuxMap[s.id] || []).filter(id => freePins.has(id)) }))
+      .sort((a, b) => a.cands.length - b.cands.length);
+
+    const next = { ...pinMapping };
+    let ok = 0;
+    let fail = 0;
+    for (const { sig, cands } of order) {
+      if (cands.length === 0) { fail++; continue; }
+      next[cands[0]] = sig;
+      freePins.delete(cands[0]);
+      ok++;
+    }
+    if (ok === 0) {
+      toast.error('没有找到任何可自动分配的信号（合法引脚均被占用或不存在）。');
+      return;
+    }
+    pushHistory('auto');
+    setPinMapping(next);
+    setIsConfigMode(true);
+    setSelectedSignalId(null);
+    setSelectedGroupId(null);
+    toast.success(`自动排布完成：${ok} 个信号已接入${fail > 0 ? `，${fail} 个无可用引脚已跳过` : ''}（Ctrl+Z 可撤销）`);
+  };
+
+  // 外设整组添加
+  const handleApplyPreset = (preset) => {
+    const freePins = new Set(pinsData.filter(p => !isPowerPin(p) && !pinMapping[p.id]).map(p => p.id));
+    const order = preset.signals
+      .map(sig => ({ sig, cands: (validMuxMap[sig] || []).filter(id => freePins.has(id)) }))
+      .sort((a, b) => a.cands.length - b.cands.length);
+
+    const next = { ...pinMapping };
+    const done = [];
+    const skipped = [];
+    for (const { sig, cands } of order) {
+      if (cands.length === 0) { skipped.push(sig); continue; }
+      next[cands[0]] = sig;
+      freePins.delete(cands[0]);
+      done.push(sig);
+    }
+    if (done.length === 0) {
+      toast.error(`${preset.name} 的信号都没有可用引脚。`);
+      return;
+    }
+    pushHistory('preset');
+    setPinMapping(next);
+    setIsConfigMode(true);
+    setSelectedSignalId(null);
+    toast.success(`${preset.name} 已接入 ${done.length} 个信号${skipped.length ? `（跳过 ${skipped.length} 个）` : ''}`);
+  };
+
+  // 分享链接
+  const handleShareLink = async () => {
+    try {
+      const url = await buildShareUrl({ chip: chipInfo, pinsData, mapping: pinMapping, customLabels });
+      if (url.length > 30000) toast.info('提示：链接较长，部分聊天工具可能会截断。');
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      } catch {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = url;
+          document.body.appendChild(ta);
+          ta.select();
+          copied = document.execCommand('copy');
+          ta.remove();
+        } catch { copied = false; }
+      }
+      if (copied) toast.success(`分享链接已复制（${(url.length / 1024).toFixed(1)} KB），打开即恢复配置`);
+      else toast.error('复制失败，请手动复制：' + url.slice(0, 80) + '…');
+    } catch (err) {
+      console.error(err);
+      toast.error('生成分享链接失败');
+    }
+  };
+
+  const handleExportIdf = () => {
+    const content = generateIdfGpioInit({ chipInfo, pinsData, mapping: pinMapping, customLabels });
+    if (!content) { toast.error('当前没有任何引脚分配，无法生成代码。'); return; }
+    downloadFile(`${baseName()}_gpio_idf.c`, content, 'text/x-c;charset=utf-8');
+    toast.success('ESP-IDF GPIO 初始化代码已生成（方向为推测，请核对）');
+  };
+
+  const handleExportHal = () => {
+    const content = generateStm32HalInit({ chipInfo, pinsData, mapping: pinMapping, customLabels });
+    if (!content) { toast.error('当前没有任何引脚分配，无法生成代码。'); return; }
+    downloadFile(`${baseName()}_gpio_hal.c`, content, 'text/x-c;charset=utf-8');
+    toast.success('STM32 HAL GPIO 初始化代码已生成（方向为推测，请核对）');
+  };
+
+  // ------------------------------------------
   // 引脚布局计算函数（矩阵环形布局）
   // ------------------------------------------
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
@@ -961,6 +1134,7 @@ export default function App() {
         setShowShortcuts(false);
         setShowExportMenu(false);
         setShowChipSettings(false);
+        setShowDrc(false);
         setSelectedSignalId(null);
         setSelectedGroupId(null);
         setSelectedPinId(null);
@@ -968,6 +1142,17 @@ export default function App() {
       }
       if ((e.key === 'f' || e.key === 'F') && isDataLoaded && view === 'diagram') {
         fitView();
+        return;
+      }
+      if (isDataLoaded && view === 'diagram' && selectedPinId != null &&
+          ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const idx = pinsData.findIndex(p => p.id === selectedPinId);
+        if (idx >= 0) {
+          const delta = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+          const next = pinsData[clamp(idx + delta, 0, pinsData.length - 1)];
+          if (next) setSelectedPinId(next.id);
+        }
         return;
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPinId != null) {
@@ -1435,7 +1620,10 @@ export default function App() {
     { icon: FileJson, label: '配置 JSON', desc: '映射 + 标签 + 引脚数据', onClick: () => { setShowExportMenu(false); handleExport(); } },
     { icon: FileText, label: '引脚表 CSV', desc: '可再次导入的引脚数据表', onClick: () => { setShowExportMenu(false); handleExportCsv(); } },
     { icon: FileSpreadsheet, label: '引脚表 XLSX', desc: 'Excel 工作簿', onClick: () => { setShowExportMenu(false); handleExportXlsx(); } },
+    { icon: Link2, label: '复制分享链接', desc: '配置压缩进 URL，打开即恢复', onClick: () => { setShowExportMenu(false); handleShareLink(); } },
     { icon: FileCode2, label: 'C 头文件', desc: '#define 引脚宏 + 配置表', onClick: () => { setShowExportMenu(false); handleExportCHeader(); } },
+    { icon: FileCode, label: 'ESP-IDF GPIO 初始化', desc: 'gpio_config 代码（方向为推测）', onClick: () => { setShowExportMenu(false); handleExportIdf(); } },
+    { icon: FileCode, label: 'STM32 HAL GPIO 初始化', desc: 'MX_GPIO_Init 代码（方向为推测）', onClick: () => { setShowExportMenu(false); handleExportHal(); } },
     { icon: BookMarked, label: 'Markdown 报告', desc: '分配明细 + 未分配清单', onClick: () => { setShowExportMenu(false); handleExportMarkdown(); } },
   ];
 
@@ -1451,6 +1639,16 @@ export default function App() {
       <Toaster />
       <ConfirmHost />
       <ShortcutsModal open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <DrcDrawer
+        open={showDrc}
+        findings={drcFindings}
+        onClose={() => setShowDrc(false)}
+        onFocusSignal={(sigId) => {
+          setIsConfigMode(true);
+          setSelectedSignalId(sigId);
+          setSelectedGroupId(getGroupForSignal(sigId)?.id || null);
+        }}
+      />
 
       {/* Header */}
       <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-4 lg:px-6 py-3 shadow-sm z-20 flex flex-col gap-2.5 shrink-0">
@@ -1508,7 +1706,8 @@ export default function App() {
                 <div className="absolute right-0 top-full mt-1.5 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 py-1.5 pinforge-pop-in">
                   {exportMenuItems.map((item, i) => (
                     <React.Fragment key={item.label}>
-                      {i === 3 && <div className="my-1.5 h-px bg-slate-100 dark:bg-slate-700" />}
+                      {i === 4 && <div className="my-1.5 h-px bg-slate-100 dark:bg-slate-700" />}
+                      {i === 7 && <div className="my-1.5 h-px bg-slate-100 dark:bg-slate-700" />}
                       <button
                         onClick={item.onClick}
                         className="w-full flex items-start gap-3 px-3.5 py-2 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors text-left"
@@ -1628,6 +1827,27 @@ export default function App() {
 
             <div className="ml-auto flex items-center gap-1.5 shrink-0">
               <button
+                onClick={handleAutoAssign}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors font-bold"
+                title="按约束强度把所有未分配信号自动接入空闲合法引脚（可撤销）"
+              >
+                <Wand2 size={12} /> 自动排布
+              </button>
+              <button
+                onClick={() => setShowDrc(true)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md transition-colors font-medium
+                  ${drcErrorCount > 0 ? 'text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10' : drcWarnCount > 0 ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10' : 'text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                title="设计审查：冲突 / 调试口 / 差分对 / IO 利用率"
+              >
+                <ShieldCheck size={12} /> 审查
+                {(drcErrorCount + drcWarnCount) > 0 && (
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${drcErrorCount > 0 ? 'bg-rose-500 text-white' : 'bg-amber-400 text-white'}`}>
+                    {drcErrorCount + drcWarnCount}
+                  </span>
+                )}
+              </button>
+              <div className="h-4 w-px bg-gray-200 dark:bg-slate-700" />
+              <button
                 onClick={handleClearAll}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors font-medium"
                 title="清空所有分配与标签"
@@ -1665,6 +1885,13 @@ export default function App() {
             {/* 左侧：智能分类列表 */}
             {view === 'diagram' && (
             <div className="w-[330px] shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col overflow-y-auto z-10 shadow-sm">
+              {isDataLoaded && (
+                <PresetPanel
+                  signals={allSignalsFlat.map(s => s.id)}
+                  assignedSignalSet={assignedSignalSet}
+                  onApply={handleApplyPreset}
+                />
+              )}
               <div className="sticky top-0 z-20 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 p-3">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1985,6 +2212,17 @@ export default function App() {
                           }
                         }
 
+                        // 电源域视图：覆盖信号配色，按供电轨着色
+                        if (powerView && !isPower) {
+                          const rail = railInfo.railMap.get(id);
+                          bgClass = rail ? railInfo.railColorMap[rail] : 'bg-slate-300 dark:bg-slate-600';
+                          borderClass = 'border-transparent';
+                          textClass = rail ? 'text-white font-bold' : 'text-slate-500 dark:text-slate-300 font-bold';
+                          opacityClass = powerFocusRail && rail !== powerFocusRail ? 'opacity-25' : 'opacity-100';
+                          scaleClass = '';
+                          ringClass = '';
+                        }
+
                         if (hasCustomLabel && !isValidCandidate) {
                           ringClass = "ring-1 ring-amber-400 ring-offset-1";
                           if (!isAssigned && !isPower) {
@@ -2050,6 +2288,53 @@ export default function App() {
                   onFit={fitView}
                   onReset={resetZoom}
                 />
+
+                {/* 电源域视图开关 / 图例 */}
+                {powerView ? (
+                  <div className="absolute top-3 right-3 z-40 w-52 bg-white/95 dark:bg-slate-800/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 dark:border-slate-700">
+                      <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200">
+                        <Droplets size={13} className="text-blue-500" /> 电源域视图
+                      </span>
+                      <button
+                        onClick={() => { setPowerView(false); setPowerFocusRail(null); }}
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded"
+                        title="退出电源域视图"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <div className="p-1.5 flex flex-col max-h-64 overflow-y-auto">
+                      {railInfo.railList.map(r => (
+                        <button
+                          key={r.name}
+                          onClick={() => setPowerFocusRail(prev => (prev === r.name ? null : r.name))}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors
+                            ${powerFocusRail === r.name ? 'bg-blue-50 dark:bg-blue-500/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
+                        >
+                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${r.dot}`} />
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 truncate">{r.name}</span>
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 shrink-0" title="已分配/引脚数">
+                            {r.assigned}/{r.total}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="px-3 py-1.5 border-t border-slate-100 dark:border-slate-700 text-[9px] text-slate-400 dark:text-slate-500">
+                      点击轨道可隔离查看；灰点为未标注供电的引脚
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setPowerView(true)}
+                    className="absolute top-3 right-3 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/95 dark:bg-slate-800/95 backdrop-blur border border-slate-200 dark:border-slate-700 shadow-md text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                    title="按供电轨给引脚着色"
+                  >
+                    <Droplets size={13} /> 电源域
+                  </button>
+                )}
 
                 {/* 悬浮 Tooltip 面板 */}
                 {hoveredPin && hoveredPin !== selectedPinId && pinsData.find(p => p.id === hoveredPin) && (

@@ -1,6 +1,6 @@
 # PinForge
 
-面向任意 MCU 的图形化引脚配置器（Pin Configurator）。支持导入/导出 CSV/XLSX/JSON，自动外设分组、引脚复用映射校验、代码生成（C 头文件 / Markdown 报告），并支持从零创建芯片与手工生成可复用的引脚数据表。
+面向任意 MCU 的图形化引脚配置器（Pin Configurator）。支持导入/导出 CSV/XLSX/JSON，自动外设分组、引脚复用映射校验、一键自动排布、设计审查（DRC）、电源域分析、链接分享与代码生成（C 头文件 / GPIO 初始化代码 / Markdown 报告），并支持从零创建芯片与手工生成可复用的引脚数据表。
 
 在线体验：<https://geek2author.github.io/PinForge/> · [功能介绍页](https://geek2author.github.io/PinForge/landing.html)
 
@@ -10,13 +10,19 @@
 - **多封装布局**：QFP/QFN（四边环形）、DIP（双排直插）、BGA（球阵矩阵 + 行列坐标）
 - **数据导入**：CSV / XLSX，自动识别中文表头与 GBK 编码，支持拖拽文件到窗口导入；内置 ESP32-P4 / STM32G474 示例一键加载
 - **信号分组**：根据复用信号名自动分类（UART/SPI/I2C/ADC/CAN/ETH…），支持搜索、过滤（未分配/已分配/冲突）、分组折叠
+- **外设快速添加**：自动从信号表识别外设实例（UART0 = TXD+RXD、SPI2 全家、USB DP/DM、MIPI 差分对、XTAL P/N…），点击一次整组接入
+- **一键自动排布**：按"约束最强优先"把全部未分配信号贪心接入空闲合法引脚，随时可撤销
+- **设计审查（DRC）**：映射冲突、调试口（JTAG/SWD）占用、差分对完整性、IO 利用率实时检查，发现项一键定位
+- **电源域视图**：按供电轨（VDD_LP / VDD_IO_x / VDD_FLASHIO…）给引脚着色，图例可按轨道隔离查看，显示每轨分配进度
 - **图形化映射**：点选引脚进行功能分配，支持组模式 / 单信号精细模式；基于复用表的合法性校验，冲突实时标红
 - **撤销/重做**：Ctrl+Z / Ctrl+Y，映射、标签、引脚编辑均可回退
 - **自动保存**：工作会话自动存入浏览器本地存储，刷新不丢失；支持一键重置项目
-- **代码生成**：一键导出 C 头文件（`#define` 引脚宏 + 配置汇总表）与 Markdown 配置报告
-- **多格式导出**：配置 JSON、引脚表 CSV / XLSX、C 头文件、Markdown 报告
+- **分享链接**：整个配置 deflate 压缩进 URL（无需服务器），发给同事打开即恢复
+- **代码生成**：一键导出 C 头文件（`#define` 引脚宏 + 配置汇总表）、ESP-IDF GPIO 初始化代码、STM32 HAL `MX_GPIO_Init`、Markdown 配置报告
+- **多格式导出**：配置 JSON、引脚表 CSV / XLSX、C 头文件、GPIO 初始化代码、Markdown 报告、分享链接
 - **表格视图**：芯片图 / 表格双视图切换，表格支持行内批量编辑名称、类型、标签
 - **亮暗主题**：完整的暗色模式，跟随系统偏好，手动切换持久化
+- **键盘友好**：方向键在画布上逐脚导航，`?` 查看全部快捷键
 - **手动建库**：未导入 CSV 时也可创建封装与 pin 数，编辑每个 pin 的复用字段并导出 CSV 作为"芯片引脚数据表"
 
 ## 快速开始
@@ -86,11 +92,18 @@ static const struct { ... } pinforge_pin_config[] = { ... };
 
 按外设类别分节输出 `#define` 宏（自动大写/去特殊字符/去重），并附汇总表便于初始化代码遍历。
 
+### 生成 GPIO 初始化代码
+
+- **ESP-IDF**：`pinforge_gpio_init()`，按推测方向分 `GPIO_MODE_OUTPUT / GPIO_MODE_INPUT` 组调用 `gpio_config()`
+- **STM32 HAL**：`MX_PINFORGE_GPIO_Init()`，自动解析 `PA2` 式管脚名、使能对应 GPIO 端口时钟、模拟外设信号设为 `GPIO_MODE_ANALOG`
+
+> 引脚方向按信号名启发式推测（TXD/SCK/MOSI → 输出，RXD/MISO/CTS → 输入，ADC/DAC 类 → 模拟），代码头部已标注"请核对后使用"。
+
 ## 交互提示
 
 - 平移：按住 Space 拖拽，或在空白处拖拽
 - 缩放：按住 Alt 滚轮（或 Ctrl 滚轮 / 触摸板双指捏合），左下角工具条可精确缩放与适应视图
-- 快捷键：`Ctrl+Z/Y` 撤销重做，`Ctrl+S` 导出配置，`F` 适应视图，`Delete` 清除选中引脚，`?` 查看全部快捷键
+- 快捷键：`Ctrl+Z/Y` 撤销重做，`Ctrl+S` 导出配置，`F` 适应视图，`Delete` 清除选中引脚，方向键逐脚导航，`?` 查看全部快捷键
 - 属性面板：支持左右停靠（面板右上角按钮切换）
 
 ## 项目结构
@@ -103,13 +116,18 @@ static const struct { ... } pinforge_pin_config[] = { ... };
 │   ├── lib/
 │   │   ├── core.js         # 信号分类、分组构建、通用工具
 │   │   ├── importer.js     # CSV/XLSX 解析、GBK 解码、复合信号拆分
-│   │   ├── codegen.js      # C 头文件 / Markdown 报告生成
+│   │   ├── presets.js      # 外设实例识别、差分对配对
+│   │   ├── drc.js          # 设计规则检查（调试口/差分对/利用率）
+│   │   ├── codegen.js      # C 头文件 / GPIO 初始化代码 / Markdown 报告
+│   │   ├── share.js        # 分享链接压缩与还原
 │   │   ├── storage.js      # 会话与主题本地存储
 │   │   ├── samples.js      # 内置示例芯片
 │   │   ├── notify.jsx      # 全局 Toast
 │   │   └── confirm.jsx     # 全局确认对话框
 │   └── components/
 │       ├── Welcome.jsx     # 欢迎页
+│       ├── PresetPanel.jsx # 外设快速添加面板
+│       ├── DrcDrawer.jsx   # 设计审查抽屉
 │       ├── PinTable.jsx    # 表格视图
 │       ├── ZoomBar.jsx     # 缩放工具条
 │       └── ShortcutsModal.jsx

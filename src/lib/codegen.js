@@ -141,3 +141,152 @@ export function generateMarkdownReport({ chipInfo, pinsData, mapping, customLabe
   md.push('');
   return md.join('\n');
 }
+
+// ==========================================
+// GPIO 初始化代码生成（方向为启发式推测，注释中已提示核对）
+// ==========================================
+const DIR_OUT_RE = /TXD|SCK|MOSI|NSS|_CS$|RTS|CLK$|CLKP|_EN$|_OUT$/i;
+const DIR_IN_RE = /RXD|MISO|CTS|DM$|DP$|_IN$/i;
+const DIR_ANALOG_RE = /ADC|DAC|COMP|OPAMP|TOUCH/i;
+
+function signalDirection(signal) {
+  if (DIR_ANALOG_RE.test(signal)) return 'analog';
+  if (DIR_OUT_RE.test(signal)) return 'out';
+  if (DIR_IN_RE.test(signal)) return 'in';
+  return 'unknown';
+}
+
+function gatherAssignments({ pinsData, mapping, customLabels }) {
+  return Object.keys(mapping)
+    .map(pinId => parseInt(pinId, 10))
+    .filter(pinId => !Number.isNaN(pinId) && mapping[pinId])
+    .map(pinId => {
+      const pin = pinsData.find(p => p.id === pinId);
+      const signal = mapping[pinId];
+      return {
+        pinId,
+        pinName: pin?.name || `Pin${pinId}`,
+        signal,
+        net: customLabels[pinId] || null,
+        dir: signalDirection(signal),
+      };
+    })
+    .sort((a, b) => a.signal.localeCompare(b.signal));
+}
+
+// ESP-IDF 风格 gpio_config 初始化
+export function generateIdfGpioInit({ chipInfo, pinsData, mapping, customLabels }) {
+  const entries = gatherAssignments({ pinsData, mapping, customLabels });
+  if (entries.length === 0) return null;
+
+  const gpioNum = (pinName, pinId) => {
+    const m = String(pinName).match(/GPIO\s*(\d+)/i);
+    return m ? parseInt(m[1], 10) : pinId;
+  };
+
+  const stamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+  const lines = [];
+  lines.push(`/*`);
+  lines.push(` * PinForge 生成的 ESP-IDF GPIO 初始化代码`);
+  lines.push(` * 芯片: ${chipInfo.name} · 引脚方向为按信号名推测（OUT/IN/未知），请核对后使用！`);
+  lines.push(` * 生成时间: ${stamp}`);
+  lines.push(` */`);
+  lines.push(`#include "driver/gpio.h"`);
+  lines.push(``);
+  lines.push(`static void pinforge_gpio_init(void)`);
+  lines.push(`{`);
+  lines.push(`    gpio_config_t io_conf;`);
+
+  for (const dir of ['out', 'in', 'unknown']) {
+    const group = entries.filter(e => (dir === 'unknown' ? (e.dir !== 'out' && e.dir !== 'in') : e.dir === dir));
+    if (group.length === 0) continue;
+    const mode = dir === 'in' ? 'GPIO_MODE_INPUT' : 'GPIO_MODE_OUTPUT';
+    const label = dir === 'out' ? '输出' : dir === 'in' ? '输入' : '方向未知（默认输入输出，请核对）';
+    lines.push('');
+    lines.push(`    /* ---- ${label} ---- */`);
+    lines.push(`    io_conf = (gpio_config_t) {`);
+    lines.push(`        .pin_bit_mask = ${group.map(e => `(1ULL << ${gpioNum(e.pinName, e.pinId)})`).join(' | ')},`);
+    lines.push(`        .mode = ${dir === 'unknown' ? 'GPIO_MODE_INPUT_OUTPUT' : mode},`);
+    lines.push(`        .pull_up_en = GPIO_PULLUP_DISABLE,`);
+    lines.push(`        .pull_down_en = GPIO_PULLDOWN_DISABLE,`);
+    lines.push(`        .intr_type = GPIO_INTR_DISABLE,`);
+    lines.push(`    };`);
+    lines.push(`    gpio_config(&io_conf);`);
+    for (const e of group) {
+      const net = e.net ? ` [net: ${e.net}]` : '';
+      lines.push(`    /* GPIO${gpioNum(e.pinName, e.pinId)}: ${e.signal}${net} */`);
+    }
+  }
+
+  lines.push(`}`);
+  lines.push('');
+  return lines.join('\n');
+}
+
+// STM32 HAL 风格 MX_GPIO_Init
+export function generateStm32HalInit({ chipInfo, pinsData, mapping, customLabels }) {
+  const entries = gatherAssignments({ pinsData, mapping, customLabels });
+  if (entries.length === 0) return null;
+
+  const parsePin = (pinName) => {
+    const m = String(pinName).trim().match(/^P([A-K])(\d{1,2})$/i);
+    return m ? { port: m[1].toUpperCase(), num: parseInt(m[2], 10) } : null;
+  };
+
+  const stamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+  const parsed = entries.map(e => ({ ...e, p: parsePin(e.pinName) }));
+  const unparsed = parsed.filter(e => !e.p);
+  const ports = [...new Set(parsed.filter(e => e.p).map(e => e.p.port))].sort();
+
+  const lines = [];
+  lines.push(`/*`);
+  lines.push(` * PinForge 生成的 STM32 HAL GPIO 初始化代码`);
+  lines.push(` * 芯片: ${chipInfo.name} · 引脚方向为按信号名推测，模拟外设设为 ANALOG，请核对后使用！`);
+  lines.push(` * 生成时间: ${stamp}`);
+  lines.push(` */`);
+  lines.push(`static void MX_PINFORGE_GPIO_Init(void)`);
+  lines.push(`{`);
+  lines.push(`  GPIO_InitTypeDef GPIO_InitStruct = {0};`);
+
+  if (ports.length > 0) {
+    lines.push('');
+    lines.push(`  /* GPIO 时钟使能 */`);
+    for (const port of ports) {
+      lines.push(`  __HAL_RCC_GPIO${port}_CLK_ENABLE();`);
+    }
+  }
+
+  for (const e of parsed) {
+    if (!e.p) continue;
+    const net = e.net ? ` [net: ${e.net}]` : '';
+    lines.push('');
+    lines.push(`  /* ${e.p.port}${e.p.num} -> ${e.signal}${net} */`);
+    if (e.dir === 'analog') {
+      lines.push(`  GPIO_InitStruct.Pin = GPIO_PIN_${e.p.num};`);
+      lines.push(`  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;`);
+      lines.push(`  GPIO_InitStruct.Pull = GPIO_NOPULL;`);
+    } else {
+      if (e.dir === 'out') {
+        lines.push(`  HAL_GPIO_WritePin(GPIO${e.p.port}, GPIO_PIN_${e.p.num}, GPIO_PIN_RESET);`);
+        lines.push(`  GPIO_InitStruct.Pin = GPIO_PIN_${e.p.num};`);
+        lines.push(`  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;`);
+      } else {
+        // 输入 / 方向未知：统一输入 + 上拉（未知方向请核对）
+        lines.push(`  GPIO_InitStruct.Pin = GPIO_PIN_${e.p.num};`);
+        lines.push(`  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;`);
+      }
+      lines.push(`  GPIO_InitStruct.Pull = GPIO_PULLUP;`);
+      lines.push(`  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;`);
+    }
+    lines.push(`  HAL_GPIO_Init(GPIO${e.p.port}, &GPIO_InitStruct);`);
+  }
+
+  for (const e of unparsed) {
+    lines.push('');
+    lines.push(`  /* 未解析管脚名 "${e.pinName}"（pinId ${e.pinId}，信号 ${e.signal}），请手动配置 */`);
+  }
+
+  lines.push(`}`);
+  lines.push('');
+  return lines.join('\n');
+}

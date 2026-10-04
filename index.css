@@ -35,6 +35,12 @@ body {
 }
 .pinforge-pop-in { animation: pinforge-pop-in 0.16s ease-out; }
 
+@keyframes pinforge-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.pinforge-slide-in { animation: pinforge-slide-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1); }
+
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
