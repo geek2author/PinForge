@@ -938,8 +938,8 @@ export default function App() {
 
     if (idx < topLen) return { row: 0, col: idx, side: 'top' };
     if (idx < topLen + rightLen) return { row: 1 + (idx - topLen), col: n - 1, side: 'right' };
-    if (idx < topLen + rightLen + bottomLen) return { row: m - 1, col: (n - 1) - (idx - (topLen + rightLen)), side: 'bottom' };
-    if (idx < topLen + rightLen + bottomLen + leftLen) return { row: (m - 2) - (idx - (topLen + rightLen + bottomLen)), col: 0, side: 'left' };
+    if (idx < topLen + rightLen + bottomLen) return { row: n - 1, col: (n - 1) - (idx - (topLen + rightLen)), side: 'bottom' };
+    if (idx < topLen + rightLen + bottomLen + leftLen) return { row: (n - 2) - (idx - (topLen + rightLen + bottomLen)), col: 0, side: 'left' };
     return { row: 0, col: 0, side: 'top' };
   };
 
