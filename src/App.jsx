@@ -881,23 +881,21 @@ export default function App() {
     }
 
     if (kind === 'bga') {
-      // 按画布长宽比排布球阵，尽量铺满可用空间
+      // BGA 球阵：接近正方形（与真实封装一致），球径按可用空间最优计算
       const gutter = Math.max(22, Math.floor(base * 0.035));
       const gutterTop = gutter;
       const gutterLeft = gutter;
 
       const availableW = maxW - pad * 2 - gutterLeft;
       const availableH = maxH - pad * 2 - gutterTop;
-      const ar = availableW / Math.max(1, availableH);
+      const maxSize = Math.min(availableW, availableH);
 
-      let cols = Math.max(1, Math.round(Math.sqrt(totalPins * ar)));
-      let rows = Math.max(1, Math.ceil(totalPins / cols));
-      if (cols * rows < totalPins) cols = Math.ceil(totalPins / rows);
+      const cols = Math.max(1, Math.ceil(Math.sqrt(totalPins)));
+      const rows = Math.max(1, Math.ceil(totalPins / cols));
 
       let gap = totalPins > 400 ? 2 : totalPins > 200 ? 3 : 6;
-      const fitBallW = Math.floor((availableW - gap * Math.max(cols - 1, 1)) / cols);
-      const fitBallH = Math.floor((availableH - gap * Math.max(rows - 1, 1)) / rows);
-      let ball = Math.max(8, Math.min(fitBallW, fitBallH, 44));
+      const fitBall = Math.floor((maxSize - gap * Math.max(Math.max(cols, rows) - 1, 1)) / Math.max(cols, rows));
+      let ball = Math.max(8, Math.min(fitBall, 44));
 
       gap = Math.max(2, Math.min(gap, Math.floor(ball * 0.55)));
 
@@ -909,51 +907,34 @@ export default function App() {
       return { kind, pad, gap, cell: ball, width, height, cols, rows, ball, gutterTop, gutterLeft, pinsOrigin };
     }
 
-    // 周长布局（QFP/QFN 等）：按画布长宽比排成矩形，引脚尽量大、芯片尽量铺满
+    // 周长布局（QFP/QFN 等）：与芯片真实物理结构一致的正方形，
+    // 引脚四边均匀分布，尺寸按可用空间最优计算
     const availW = maxW - pad * 2;
     const availH = maxH - pad * 2;
-    const ar = Math.min(2.2, Math.max(0.7, availW / Math.max(1, availH)));
-
-    const half = totalPins / 2 + 2; // cols + rows
-    let rows = Math.max(3, Math.round(half / (1 + ar)));
-    let cols = Math.max(3, Math.round(half - rows));
-    // 保证周长容量足够（不足时加宽）
-    while (2 * (cols + rows - 2) < totalPins) cols += 1;
-    // 轻微平衡：宽高比偏大时优先加列
-    if (cols * 1 < rows * ar * 0.8) cols += 1;
-
+    const maxSize = Math.min(availW, availH);
+    const cellsPerSide = Math.max(3, Math.ceil((totalPins + 4) / 4));
     let gap = totalPins > 120 ? 3 : totalPins > 80 ? 4 : 5;
-    let cell = Math.floor(Math.min(
-      (availW - gap * Math.max(cols - 1, 1)) / cols,
-      (availH - gap * Math.max(rows - 1, 1)) / rows
-    ));
+    let cell = Math.floor((maxSize - pad * 2 - gap * (cellsPerSide - 1)) / cellsPerSide);
     if (cell < 10) {
-      gap = Math.max(2, Math.min(gap, Math.floor(((availW - cols * 10) / Math.max(cols - 1, 1)) / 1.5)));
-      cell = Math.max(10, Math.floor(Math.min(
-        (availW - gap * Math.max(cols - 1, 1)) / cols,
-        (availH - gap * Math.max(rows - 1, 1)) / rows
-      )));
+      gap = Math.max(2, Math.floor((maxSize - pad * 2 - cellsPerSide * 10) / Math.max(cellsPerSide - 1, 1)));
+      cell = Math.floor((maxSize - pad * 2 - gap * (cellsPerSide - 1)) / cellsPerSide);
     }
-    cell = Math.min(cell, 44);
+    cell = Math.max(10, Math.min(cell, 44));
     gap = Math.max(2, Math.min(gap, Math.floor(cell * 0.5)));
 
-    const size = {
-      width: pad * 2 + cols * cell + (cols - 1) * gap,
-      height: pad * 2 + rows * cell + (rows - 1) * gap,
-    };
+    const size = pad * 2 + cellsPerSide * cell + (cellsPerSide - 1) * gap;
     const bodyInset = pad + cell + gap;
-    return { kind, pad, gap, cell, width: size.width, height: size.height, cols, rows, bodyInset };
+    return { kind, pad, gap, cell, width: size, height: size, cellsPerSide, bodyInset };
   }, [pinsData.length, viewportSize.width, viewportSize.height, chipInfo.package]);
 
   const getPinGridPos = (pinIndex) => {
-    const n = packageLayout.cols;
-    const m = packageLayout.rows;
-    const perimeter = 2 * (n + m - 2);
+    const n = packageLayout.cellsPerSide;
+    const perimeter = 4 * n - 4;
     const idx = Math.max(0, Math.min(pinIndex, perimeter - 1));
     const topLen = n;
-    const rightLen = m - 2;
+    const rightLen = n - 2;
     const bottomLen = n;
-    const leftLen = m - 2;
+    const leftLen = n - 2;
 
     if (idx < topLen) return { row: 0, col: idx, side: 'top' };
     if (idx < topLen + rightLen) return { row: 1 + (idx - topLen), col: n - 1, side: 'right' };
