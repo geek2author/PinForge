@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <title>PinForge - 芯片引脚配置助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --secondary: #6366f1;
+            --accent: #f59e0b;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #1a1a2e 100%);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            z-index: 100;
+            transition: all 0.3s ease;
+        }
+
+        header.scrolled {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 24px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--primary);
+            transition: width 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .github-btn {
+            background: var(--primary);
+            color: white;
+            padding: 8px 20px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .github-btn:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 120px 20px 80px;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: fadeInUp 0.8s ease;
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 40px;
+            animation: fadeInUp 0.8s ease 0.2s both;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            animation: fadeInUp 0.8s ease 0.4s both;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-primary);
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            border: 2px solid var(--border);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        /* Features Section */
+        .section {
+            padding: 80px 20px;
+        }
+
+        .section-title {
+            font-size: 32px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 60px;
+            color: var(--text-primary);
+        }
+
+        .section-title::after {
+            content: '';
+            display: block;
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            margin: 16px auto 0;
+            border-radius: 2px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            border-color: var(--primary);
+        }
+
+        .feature-icon {
+            width: 64px;
+            height: 64px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-bottom: 20px;
+            color: var(--primary);
+        }
+
+        .feature-card h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Tech Stack */
+        .tech-stack {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .tech-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .tech-item:hover {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+            transform: translateY(-3px);
+        }
+
+        .tech-item i {
+            font-size: 32px;
+            margin-bottom: 12px;
+            color: var(--primary);
+        }
+
+        .tech-item span {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Architecture */
+        .architecture {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .arch-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            align-items: center;
+        }
+
+        .arch-layer {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: rgba(59, 130, 246, 0.1);
+            padding: 16px 24px;
+            border-radius: 8px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .arch-layer::before {
+            content: '↑';
+            color: var(--primary);
+            font-size: 20px;
+        }
+
+        .arch-layer:first-child::before {
+            content: '';
+        }
+
+        .arch-layer span {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .arch-layer p {
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        /* Guide Section */
+        .guide-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+        }
+
+        .step-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            position: relative;
+        }
+
+        .step-number {
+            position: absolute;
+            top: -12px;
+            left: 24px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .step-card h4 {
+            margin-top: 16px;
+            margin-bottom: 12px;
+            font-size: 18px;
+            color: var(--text-primary);
+        }
+
+        .step-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .code-block {
+            background: #0f172a;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+            color: var(--text-primary);
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+
+        /* FAQ */
+        .faq-list {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .faq-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 16px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .faq-item:hover {
+            border-color: var(--primary);
+        }
+
+        .faq-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            width: 100%;
+            text-align: left;
+        }
+
+        .faq-header h4 {
+            font-size: 16px;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .faq-icon {
+            width: 24px;
+            height: 24px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            font-size: 14px;
+            transition: transform 0.3s ease;
+        }
+
+        .faq-item.active .faq-icon {
+            transform: rotate(45deg);
+        }
+
+        .faq-content {
+            padding: 0 24px;
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .faq-item.active .faq-content {
+            padding: 0 24px 20px;
+            max-height: 200px;
+        }
+
+        .faq-content p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Footer */
+        footer {
+            background: rgba(15, 23, 42, 0.95);
+            border-top: 1px solid var(--border);
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        footer p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 32px;
+            }
+
+            .hero p {
+                font-size: 16px;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .architecture {
+                padding: 20px;
+            }
+
+            .arch-layer {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header id="header">
+        <nav>
+            <a href="#" class="logo" onclick="goApp(event)">
+                <div class="logo-icon">⚡</div>
+                <span>PinForge</span>
+            </a>
+            <ul class="nav-links">
+                <li><a href="#features">核心功能</a></li>
+                <li><a href="#tech">技术架构</a></li>
+                <li><a href="#guide">使用指南</a></li>
+                <li><a href="#faq">常见问题</a></li>
+            </ul>
+            <a href="#" class="github-btn" onclick="goApp(event)">打开应用</a>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1>PinForge</h1>
+        <p>芯片引脚配置助手 - 让硬件开发更高效</p>
+        <div class="hero-buttons">
+            <a href="#" class="btn-primary" onclick="goApp(event)">立即体验</a>
+            <a href="#features" class="btn-secondary">了解更多</a>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="section">
+        <h2 class="section-title">核心功能模块</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔧</div>
+                <h3>多芯片支持</h3>
+                <p>不绑定特定芯片：导入 CSV/XLSX 引脚数据或从零创建，内置 ESP32-P4、STM32G474 示例一键加载。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🎯</div>
+                <h3>可视化配置</h3>
+                <p>QFP/QFN、DIP、BGA 多封装图形布局，组模式/单信号精细映射，支持平移缩放与触摸手势。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚠️</div>
+                <h3>冲突检测</h3>
+                <p>基于引脚复用表实时校验分配合法性，冲突信号高亮告警，提前发现配置问题。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🪄</div>
+                <h3>自动排布与外设快加</h3>
+                <p>自动识别 UART/SPI/I2C/USB 等外设实例，点击一次整组接入；也可按约束强度一键把全部未分配信号自动排布到空闲引脚。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🛡️</div>
+                <h3>设计审查 DRC</h3>
+                <p>除冲突检测外，实时检查调试口占用、差分对完整性、IO 利用率等工程规则，发现项一键定位到信号。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💧</div>
+                <h3>电源域分析</h3>
+                <p>按供电轨（VDD_LP / VDD_IO_x / VDD_FLASHIO…）给引脚着色，图例显示每轨分配进度，可隔离查看单一电源域。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📄</div>
+                <h3>代码生成</h3>
+                <p>一键生成 C 头文件（#define 引脚宏 + 配置表）、ESP-IDF / STM32 HAL GPIO 初始化代码与 Markdown 配置报告。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔗</div>
+                <h3>链接分享</h3>
+                <p>整个配置压缩进 URL（无需服务器），复制链接发给同事，打开即恢复完整配置方案。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💾</div>
+                <h3>自动保存</h3>
+                <p>工作会话自动保存到本地，刷新不丢失；撤销/重做（Ctrl+Z / Ctrl+Y）随时回退，亮暗主题随心切换。</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Stack Section -->
+    <section id="tech" class="section">
+        <h2 class="section-title">技术栈与架构</h2>
+
+        <h3 style="text-align: center; margin-bottom: 32px; color: var(--text-primary); font-size: 20px;">技术栈</h3>
+        <div class="tech-stack">
+            <div class="tech-item">
+                <i>⚛️</i>
+                <span>React</span>
+            </div>
+            <div class="tech-item">
+                <i>⚡</i>
+                <span>Vite</span>
+            </div>
+            <div class="tech-item">
+                <i>🎨</i>
+                <span>Tailwind CSS</span>
+            </div>
+            <div class="tech-item">
+                <i>📊</i>
+                <span>XLSX</span>
+            </div>
+            <div class="tech-item">
+                <i>✨</i>
+                <span>Lucide Icons</span>
+            </div>
+            <div class="tech-item">
+                <i>🌐</i>
+                <span>GitHub Pages</span>
+            </div>
+        </div>
+
+        <h3 style="text-align: center; margin: 60px 0 32px; color: var(--text-primary); font-size: 20px;">架构设计</h3>
+        <div class="architecture">
+            <div class="arch-diagram">
+                <div class="arch-layer">
+                    <span>用户界面层</span>
+                    <p>React 组件、交互式配置面板、可视化引脚图、表格视图</p>
+                </div>
+                <div class="arch-layer">
+                    <span>业务逻辑层</span>
+                    <p>引脚配置管理、冲突检测算法、C/Markdown 代码生成器</p>
+                </div>
+                <div class="arch-layer">
+                    <span>数据管理层</span>
+                    <p>引脚数据解析（CSV/XLSX/GBK）、会话存储、JSON 配置</p>
+                </div>
+                <div class="arch-layer">
+                    <span>基础设施层</span>
+                    <p>Vite 构建工具、Tailwind CSS、GitHub Pages 部署</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Guide Section -->
+    <section id="guide" class="section">
+        <h2 class="section-title">安装与使用指南</h2>
+        <div class="guide-steps">
+            <div class="step-card">
+                <div class="step-number">1</div>
+                <h4>克隆项目</h4>
+                <p>从 GitHub 克隆项目到本地</p>
+                <div class="code-block">git clone https://github.com/geek2author/PinForge.git</div>
+            </div>
+            <div class="step-card">
+                <div class="step-number">2</div>
+                <h4>安装依赖</h4>
+                <p>进入项目目录并安装依赖</p>
+                <div class="code-block">cd PinForge<br>npm install</div>
+            </div>
+            <div class="step-card">
+                <div class="step-number">3</div>
+                <h4>启动开发服务器</h4>
+                <p>运行开发命令启动本地服务器</p>
+                <div class="code-block">npm run dev</div>
+            </div>
+            <div class="step-card">
+                <div class="step-number">4</div>
+                <h4>构建部署</h4>
+                <p>构建生产版本并部署</p>
+                <div class="code-block">npm run deploy</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="section">
+        <h2 class="section-title">常见问题解答</h2>
+        <div class="faq-list">
+            <div class="faq-item">
+                <button class="faq-header">
+                    <h4>如何添加新的芯片型号？</h4>
+                    <div class="faq-icon">+</div>
+                </button>
+                <div class="faq-content">
+                    <p>无需写代码：直接导入该芯片的引脚数据 CSV/XLSX（第一列序号、第二列管脚名、第三列类型、后续列为复用功能），即可自动生成信号列表与芯片图。也可以在欢迎页"从零创建芯片"，逐脚填写复用功能后导出 CSV 作为引脚数据表。</p>
+                </div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-header">
+                    <h4>为什么会出现引脚冲突？</h4>
+                    <div class="faq-icon">+</div>
+                </button>
+                <div class="faq-content">
+                    <p>冲突通常发生在信号被分配到不支持它的引脚，或同一信号被分配到多个引脚时。例如把 UART0_TX 分配到一个复用表中没有该信号的 GPIO。系统会实时检测并在信号列表与引脚上标红提示。</p>
+                </div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-header">
+                    <h4>支持导出哪些格式的配置代码？</h4>
+                    <div class="faq-icon">+</div>
+                </button>
+                <div class="faq-content">
+                    <p>目前支持导出：C 头文件（#define 引脚宏 + 配置汇总表，适用于 ESP-IDF / STM32 HAL 等框架）、Markdown 配置报告、配置 JSON、引脚表 CSV / XLSX。后续版本将支持更多格式。</p>
+                </div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-header">
+                    <h4>配置会丢失吗？</h4>
+                    <div class="faq-icon">+</div>
+                </button>
+                <div class="faq-content">
+                    <p>不会。工具会把当前工作会话自动保存到浏览器本地存储，刷新或关闭页面后重新打开即可恢复。重要节点建议再导出一份配置 JSON 存档，误操作也可用 Ctrl+Z 撤销。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2026 PinForge. All rights reserved.</p>
+    </footer>
+
+    <script>
+        // 与部署子路径（如 /PinForge/）无关地跳转回应用
+        function goApp(e) {
+            e.preventDefault();
+            window.location.href = window.location.pathname.replace(/landing\.html.*$/, '');
+        }
+
+        // Smooth scrolling
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                const href = this.getAttribute('href');
+                if (href === '#') return;
+                e.preventDefault();
+                document.querySelector(href).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Header scroll effect
+        window.addEventListener('scroll', () => {
+            const header = document.getElementById('header');
+            if (window.scrollY > 50) {
+                header.classList.add('scrolled');
+            } else {
+                header.classList.remove('scrolled');
+            }
+        });
+
+        // FAQ accordion
+        document.querySelectorAll('.faq-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const item = header.parentElement;
+                item.classList.toggle('active');
+            });
+        });
+    </script>
+</body>
+</html>
